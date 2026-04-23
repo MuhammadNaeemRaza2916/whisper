@@ -35,15 +35,29 @@ export async function authCallback(req: Request, res: Response, next: NextFuncti
     if (!user) {
       // get user info from clerk and save to db
       const clerkUser = await clerkClient.users.getUser(clerkId);
+      const primaryEmail = clerkUser.emailAddresses[0]?.emailAddress;
+      if (!primaryEmail) {
+        res.status(422).json({ message: "Unable to provision user without email" });
+        return;
+      }
 
-      user = await User.create({
-        clerkId,
-        name: clerkUser.firstName
-          ? `${clerkUser.firstName} ${clerkUser.lastName || ""}`.trim()
-          : clerkUser.emailAddresses[0]?.emailAddress?.split("@")[0],
-        email: clerkUser.emailAddresses[0]?.emailAddress,
-        avatar: clerkUser.imageUrl,
-      });
+      const fullName = `${clerkUser.firstName ?? ""} ${clerkUser.lastName ?? ""}`.trim();
+      const name = fullName || primaryEmail.split("@")[0];
+
+      try {
+        user = await User.create({
+          clerkId,
+          name,
+          email: primaryEmail,
+          avatar: clerkUser.imageUrl,
+        });
+      } catch (err: any) {
+        if (err?.code === 11000) {
+          user = await User.findOne({ clerkId });
+        } else {
+          throw err;
+        }
+      }
     }
 
     res.json(user);
